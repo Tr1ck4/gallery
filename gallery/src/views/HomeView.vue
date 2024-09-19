@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div ref="sceneContainer" class="three-container" :class="{ 'fade-out': isFadingOut }" @click="playAnimation"></div>
+    <div ref="sceneContainer" class="three-container" :class="{ 'fade-out': isFadingOut }"></div>
     <video id="fullscreen-video" controls ref="fullscreenVideo" :class="{ 'fade-in': isFadingIn}">
       <source src="/assets/random.mp4" type="video/mp4">
       Your browser does not support the video tag.
@@ -16,6 +16,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import wallTexture from '../assets/khazik.png';
+import { camelize, render } from 'vue';
 
 export default {
   data() {
@@ -29,64 +30,86 @@ export default {
       walkAction: null,
       runAction: null,
       currentAction: null,
+      camera: null,
+      renderer: null,
     };
   },
   mounted() {
     const scene = new THREE.Scene();
 
-    let camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 100);
-    camera.position.set(10, 5, 10);
-    camera.lookAt(0, 4, 0);
+    this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 100);
+    this.camera.position.set(10, 5, 10);
+    this.camera.lookAt(0, 4, 0);
     
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
     
-    const renderer = new THREE.WebGLRenderer();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    this.$refs.sceneContainer.appendChild(renderer.domElement);
+    this.renderer = new THREE.WebGLRenderer();
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.$refs.sceneContainer.appendChild(this.renderer.domElement);
     
-    const controls = new OrbitControls(camera, renderer.domElement);
+    //free transform camera
+    const controls = new OrbitControls(this.camera, this.renderer.domElement);
 
     scene.background = new THREE.Color(0xffffff);
-    scene.fog = new THREE.Fog(0xffffff, 10, 50);
+    // scene.fog = new THREE.Fog(0xffffff, 10, 50); //fog edge
 
-    const spotLight = new THREE.SpotLight(0xff0000, 1, 10);
-    spotLight.position.set(1, 5, 1);
+    // <----- Lighting part -----> 
+    // Sun light
+    // const directionLight = new THREE.DirectionalLight(0xfffffff, 0.5);
+    // directionLight.castShadow = true;
+    // directionLight.target.position.set(1,3,1);
+    // directionLight.position.set(5,10,0);
 
-    const spotLightTarget = new THREE.Object3D();
-    spotLightTarget.position.set(1, 1, 1);
-    scene.add(spotLightTarget);
-    spotLight.target = spotLightTarget;
+    // directionLight.shadow.mapSize.width = 512; // default
+    // directionLight.shadow.mapSize.height = 512; // default
+    // directionLight.shadow.camera.near = 0.5; // default
+    // directionLight.shadow.camera.far = 500; // default
 
-    spotLight.castShadow = true;
-    spotLight.shadow.mapSize.width = 1024;
-    spotLight.shadow.mapSize.height = 1024;
+    // const directionLightHelper = new THREE.DirectionalLightHelper(directionLight);
+    // scene.add(directionLight);
+    // scene.add(directionLightHelper);
 
-    spotLight.shadow.camera.near = 0.5;
-    spotLight.shadow.camera.far = 100;
-    spotLight.shadow.camera.fov = 30;
+    //Spot light
+    // const spotLight = new THREE.SpotLight(0xff0000, 1, 10);
+    // spotLight.position.set(1, 5, 1);
 
-    const spotLightHelper = new THREE.SpotLightHelper(spotLight);
-    scene.add(spotLightHelper);
-    scene.add(spotLight);
+    // const spotLightTarget = new THREE.Object3D();
+    // spotLightTarget.position.set(1, 1, 1);
+    // scene.add(spotLightTarget);
+    // spotLight.target = spotLightTarget;
+
+    // spotLight.castShadow = true;
+    // spotLight.shadow.mapSize.width = 1024;
+    // spotLight.shadow.mapSize.height = 1024;
+
+    // spotLight.shadow.camera.near = 0.5;
+    // spotLight.shadow.camera.far = 100;
+    // spotLight.shadow.camera.fov = 30;
+
+    // const spotLightHelper = new THREE.SpotLightHelper(spotLight);
+    // scene.add(spotLightHelper);
+    // scene.add(spotLight);
 
 
-    const onWindowResize = () => {
-      const width = window.innerWidth;
-      const height = window.innerHeight;
-      renderer.setSize(width, height);
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
-    };
+    // <----- Frame resizing ----->
 
-    window.addEventListener('resize', onWindowResize);
+    window.addEventListener('resize', this.onWindowResize());
 
+    // <------ Load model ------>
     const loader = new GLTFLoader();
     loader.load(
       'assets/Soldier.glb',
       (gltf) => {
         let model = gltf.scene;
-        scene.add(model);
+        
+        model.traverse( function (child){
+          if (child.isMesh){
+            child.castShadow = true;
+          }
+        })
+
         const animations = gltf.animations;
         this.mixer = new THREE.AnimationMixer(model);
 
@@ -101,10 +124,11 @@ export default {
         this.currentAction = this.idleAction;
         this.currentAction.play();
 
+        scene.add(model);
+
         const clock = new THREE.Clock();
         let keys = {};
 
-        const crossFadeDuration = 0.5;
 
         const animate = () => {
           const delta = clock.getDelta();
@@ -125,9 +149,9 @@ export default {
 
             model.rotation.y = Math.atan2(-moveDirection.x, -moveDirection.z);
 
-            camera.position.x += moveDirection.x;
-            camera.position.z += moveDirection.z;
-            camera.lookAt(model.position);
+            this.camera.position.x += moveDirection.x;
+            this.camera.position.z += moveDirection.z;
+            this.camera.lookAt(model.position);
 
             if (this.currentAction !== this.walkAction) {
               this.currentAction.stop();
@@ -142,8 +166,7 @@ export default {
             }
           }
 
-          renderer.render(scene, camera);
-          renderer.setAnimationLoop(animate);
+          
         };
 
         document.addEventListener('keydown', (event) => {
@@ -154,7 +177,8 @@ export default {
           keys[event.key.toUpperCase()] = false;
         });
 
-        animate();
+        this.renderer.render(scene, this.camera);
+        this.renderer.setAnimationLoop(animate);
       },
       undefined,
       (error) => {
@@ -168,19 +192,33 @@ export default {
 
     const wallMaterial = new THREE.MeshBasicMaterial({ map: texture });
 
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshPhongMaterial({ color: '#ffffff', depthWrite: false }));
-    mesh.rotation.x = -Math.PI / 2;
+    const color = 0xFFFFFF;
+		const intensity = 100;
+		const light = new THREE.SpotLight( color, intensity );
+		light.castShadow = true;
+		light.position.set( 5, 20, 5 );
+		light.target.position.set( - 4, 0, - 4 );
+
+    const SpotLightHelper = new THREE.SpotLightHelper(light);
+		scene.add( light );
+		scene.add( light.target );
+    scene.add( SpotLightHelper);
+  
+    const mesh = new THREE.Mesh( new THREE.PlaneGeometry( 100, 100 ), new THREE.MeshPhongMaterial( { color: 0xcbcbcb, depthWrite: false } ) );
+    mesh.rotation.x = - Math.PI / 2;
     mesh.receiveShadow = true;
-    scene.add(mesh);
+    scene.add( mesh );
 
     const wall_1 = new THREE.BoxGeometry(10, 10, 1);
     const wall_1_prefab = new THREE.Mesh(wall_1, new THREE.MeshBasicMaterial({ color: '#ffff00' }));
     wall_1_prefab.position.set(0, 4.5, -5.5);
+    wall_1_prefab.castShadow = true;
     scene.add(wall_1_prefab);
 
     const wall_2 = new THREE.BoxGeometry(1, 10, 10);
     const wall_2_prefab = new THREE.Mesh(wall_2, new THREE.MeshBasicMaterial({ color: '#ffff00' }));
     wall_2_prefab.position.set(-5.5, 4.5, 0);
+    wall_2_prefab.castShadow = true;
     scene.add(wall_2_prefab);
 
     const frame_1 = new THREE.BoxGeometry(1, 1, 0.1);
@@ -233,7 +271,7 @@ export default {
       if (this.mixer) {
         this.mixer.update(1);
       }
-      renderer.render(scene, camera);
+      this.renderer.render(scene, this.camera);
       requestAnimationFrame(animate);
     };
 
@@ -243,7 +281,7 @@ export default {
       mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
       mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
-      raycaster.setFromCamera(mouse, camera);
+      raycaster.setFromCamera(mouse, this.camera);
       const intersects = raycaster.intersectObject(cube);
 
       if (intersects.length > 0) {
@@ -262,11 +300,12 @@ export default {
     window.addEventListener('click', onClick);
   },
   methods: {
-    playAnimation() {
-      if (this.idleAction && this.walkAction && this.runAction) {
-        this.idleAction.stop();
-        this.walkAction.play();
-      }
+    onWindowResize(){
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      this.renderer.setSize(width, height);
+      this.camera.aspect = width / height;
+      this.camera.updateProjectionMatrix();
     },
     exitFullscreen() {
       this.isFadingIn = false;
