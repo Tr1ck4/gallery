@@ -1,312 +1,458 @@
 <template>
   <div>
     <div ref="sceneContainer" class="three-container" :class="{ 'fade-out': isFadingOut }"></div>
-    <video id="fullscreen-video" controls ref="fullscreenVideo" :class="{ 'fade-in': isFadingIn}">
+    <video id="fullscreen-video" controls ref="fullscreenVideo" :class="{ 'fade-in': isFadingIn }">
       <source src="/assets/random.mp4" type="video/mp4">
       Your browser does not support the video tag.
     </video>
     <button id="exit-button" ref="exitButton" @click="exitFullscreen" :class="{ 'fade-in': isButtonVisible }">
       Exit Fullscreen
     </button>
+    <button id="toggle-button" ref="toggleButton" @click="enterFPSMode">
+      something
+    </button>
+
+    <div class="tooltip" :class="{ 'visible': isTooltip }"> Press space to enter new mode</div>
   </div>
 </template>
+
 
 <script>
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import wallTexture from '../assets/khazik.png';
-import { camelize, render } from 'vue';
+import texture_1 from '../assets/1.jpeg';
+import texture_2 from '../assets/2.jpg';
+import texture_3 from '../assets/3.jpg';
 
 export default {
   data() {
     return {
+      mouse: new THREE.Vector2(),
       model: null,
-      isFadingOut: false,
-      isFadingIn: false,
-      isButtonVisible: false,
       mixer: null,
-      idleAction: null,
-      walkAction: null,
-      runAction: null,
+      actions: {
+        idle: null,
+        walk: null,
+        run: null
+      },
       currentAction: null,
       camera: null,
       renderer: null,
+      raycaster: new THREE.Raycaster(),
+      controls: null,
+      isFPSMode: false,
+      isFadingIn: false,
+      isFadingOut: false,
+      isButtonVisible: false,
+      isTooltip: false,
+      torus: null,
+      keys: {},
     };
   },
   mounted() {
-    const scene = new THREE.Scene();
+    this.initThreeScene();
+    this.loadModel();
+    window.addEventListener('resize', this.onWindowResize);
+    window.addEventListener('keydown', this.onKeyDown);
 
-    this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 100);
-    this.camera.position.set(10, 5, 10);
-    this.camera.lookAt(0, 4, 0);
-    
-    const raycaster = new THREE.Raycaster();
-    const mouse = new THREE.Vector2();
-    
-    this.renderer = new THREE.WebGLRenderer();
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.$refs.sceneContainer.appendChild(this.renderer.domElement);
-    
-    //free transform camera
-    const controls = new OrbitControls(this.camera, this.renderer.domElement);
-
-    scene.background = new THREE.Color(0xffffff);
-    // scene.fog = new THREE.Fog(0xffffff, 10, 50); //fog edge
-
-    // <----- Lighting part -----> 
-    // Sun light
-    // const directionLight = new THREE.DirectionalLight(0xfffffff, 0.5);
-    // directionLight.castShadow = true;
-    // directionLight.target.position.set(1,3,1);
-    // directionLight.position.set(5,10,0);
-
-    // directionLight.shadow.mapSize.width = 512; // default
-    // directionLight.shadow.mapSize.height = 512; // default
-    // directionLight.shadow.camera.near = 0.5; // default
-    // directionLight.shadow.camera.far = 500; // default
-
-    // const directionLightHelper = new THREE.DirectionalLightHelper(directionLight);
-    // scene.add(directionLight);
-    // scene.add(directionLightHelper);
-
-    //Spot light
-    // const spotLight = new THREE.SpotLight(0xff0000, 1, 10);
-    // spotLight.position.set(1, 5, 1);
-
-    // const spotLightTarget = new THREE.Object3D();
-    // spotLightTarget.position.set(1, 1, 1);
-    // scene.add(spotLightTarget);
-    // spotLight.target = spotLightTarget;
-
-    // spotLight.castShadow = true;
-    // spotLight.shadow.mapSize.width = 1024;
-    // spotLight.shadow.mapSize.height = 1024;
-
-    // spotLight.shadow.camera.near = 0.5;
-    // spotLight.shadow.camera.far = 100;
-    // spotLight.shadow.camera.fov = 30;
-
-    // const spotLightHelper = new THREE.SpotLightHelper(spotLight);
-    // scene.add(spotLightHelper);
-    // scene.add(spotLight);
-
-
-    // <----- Frame resizing ----->
-
-    window.addEventListener('resize', this.onWindowResize());
-
-    // <------ Load model ------>
-    const loader = new GLTFLoader();
-    loader.load(
-      'assets/Soldier.glb',
-      (gltf) => {
-        let model = gltf.scene;
-        
-        model.traverse( function (child){
-          if (child.isMesh){
-            child.castShadow = true;
-          }
-        })
-
-        const animations = gltf.animations;
-        this.mixer = new THREE.AnimationMixer(model);
-
-        this.idleAction = this.mixer.clipAction(animations[0]);
-        this.walkAction = this.mixer.clipAction(animations[3]);
-        this.runAction = this.mixer.clipAction(animations[1]);
-
-        this.idleAction.setLoop(THREE.LoopRepeat, Infinity).timeScale = 0.03;
-        this.walkAction.setLoop(THREE.LoopRepeat, Infinity).timeScale = -1;
-        this.runAction.setLoop(THREE.LoopRepeat, Infinity);
-
-        this.currentAction = this.idleAction;
-        this.currentAction.play();
-
-        scene.add(model);
-
-        const clock = new THREE.Clock();
-        let keys = {};
-
-
-        const animate = () => {
-          const delta = clock.getDelta();
-          if (this.mixer) {
-            this.mixer.update(delta);
-          }
-
-          let moveDirection = new THREE.Vector3();
-          if (keys['W']) moveDirection.z -= 1;
-          if (keys['S']) moveDirection.z += 1;
-          if (keys['A']) moveDirection.x -= 1;
-          if (keys['D']) moveDirection.x += 1;
-
-          if (moveDirection.length() > 0) {
-            moveDirection.normalize().multiplyScalar(0.05); 
-
-            model.position.add(moveDirection);
-
-            model.rotation.y = Math.atan2(-moveDirection.x, -moveDirection.z);
-
-            this.camera.position.x += moveDirection.x;
-            this.camera.position.z += moveDirection.z;
-            this.camera.lookAt(model.position);
-
-            if (this.currentAction !== this.walkAction) {
-              this.currentAction.stop();
-              this.currentAction = this.walkAction;
-              this.currentAction.play();
-            }
-          } else {
-            if (this.currentAction !== this.idleAction) {
-              this.currentAction.stop();
-              this.currentAction = this.idleAction;
-              this.currentAction.play();
-            }
-          }
-
-          
-        };
-
-        document.addEventListener('keydown', (event) => {
-          keys[event.key.toUpperCase()] = true;
-        });
-
-        document.addEventListener('keyup', (event) => {
-          keys[event.key.toUpperCase()] = false;
-        });
-
-        this.renderer.render(scene, this.camera);
-        this.renderer.setAnimationLoop(animate);
-      },
-      undefined,
-      (error) => {
-        console.error('An error happened while loading the model:', error);
-      }
-    );
-
-    const texture = new THREE.TextureLoader().load(wallTexture);
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-
-    const wallMaterial = new THREE.MeshBasicMaterial({ map: texture });
-
-    const color = 0xFFFFFF;
-		const intensity = 100;
-		const light = new THREE.SpotLight( color, intensity );
-		light.castShadow = true;
-		light.position.set( 5, 20, 5 );
-		light.target.position.set( - 4, 0, - 4 );
-
-    const SpotLightHelper = new THREE.SpotLightHelper(light);
-		scene.add( light );
-		scene.add( light.target );
-    scene.add( SpotLightHelper);
-  
-    const mesh = new THREE.Mesh( new THREE.PlaneGeometry( 100, 100 ), new THREE.MeshPhongMaterial( { color: 0xcbcbcb, depthWrite: false } ) );
-    mesh.rotation.x = - Math.PI / 2;
-    mesh.receiveShadow = true;
-    scene.add( mesh );
-
-    const wall_1 = new THREE.BoxGeometry(10, 10, 1);
-    const wall_1_prefab = new THREE.Mesh(wall_1, new THREE.MeshBasicMaterial({ color: '#ffff00' }));
-    wall_1_prefab.position.set(0, 4.5, -5.5);
-    wall_1_prefab.castShadow = true;
-    scene.add(wall_1_prefab);
-
-    const wall_2 = new THREE.BoxGeometry(1, 10, 10);
-    const wall_2_prefab = new THREE.Mesh(wall_2, new THREE.MeshBasicMaterial({ color: '#ffff00' }));
-    wall_2_prefab.position.set(-5.5, 4.5, 0);
-    wall_2_prefab.castShadow = true;
-    scene.add(wall_2_prefab);
-
-    const frame_1 = new THREE.BoxGeometry(1, 1, 0.1);
-    const frame_1_prefab = new THREE.Mesh(frame_1, wallMaterial);
-    frame_1_prefab.position.set(2, 4, -5);
-    scene.add(frame_1_prefab);
-
-    const frame_2_prefab = new THREE.Mesh(frame_1, wallMaterial);
-    frame_2_prefab.position.set(0, 4, -5);
-    scene.add(frame_2_prefab);
-
-    const frame_3_prefab = new THREE.Mesh(frame_1, wallMaterial);
-    frame_3_prefab.position.set(-2, 4, -5);
-    scene.add(frame_3_prefab);
-
-    const video = document.createElement('video');
-    video.src = 'assets/random.mp4'; 
-    video.crossOrigin = 'anonymous'; 
-    video.loop = true;
-    video.muted = true;
-    video.playsInline = true;
-    video.autoplay = true;
-    video.play();
-
-    const videoTexture = new THREE.VideoTexture(video);
-
-    const videoMaterial = new THREE.MeshBasicMaterial({ map: videoTexture });
-
-    const sideMaterial1 = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-    const sideMaterial2 = new THREE.MeshBasicMaterial({ color: 0x00ff00 }); 
-    const sideMaterial3 = new THREE.MeshBasicMaterial({ color: 0x0000ff }); 
-    const sideMaterial4 = new THREE.MeshBasicMaterial({ color: 0xffff00 }); 
-    const sideMaterial5 = new THREE.MeshBasicMaterial({ color: 0x00ffff }); 
-
-    const materials = [
-      videoMaterial,  
-      sideMaterial2,  
-      sideMaterial1,  
-      sideMaterial3,  
-      sideMaterial4,  
-      sideMaterial5   
-    ];
-
-    const geometry = new THREE.BoxGeometry(0.5, 6, 9);
-    const cube = new THREE.Mesh(geometry, materials);
-    cube.position.set(-5,5,0);
-    scene.add(cube);
-
-    const animate = () => {
-      if (this.mixer) {
-        this.mixer.update(1);
-      }
-      this.renderer.render(scene, this.camera);
-      requestAnimationFrame(animate);
-    };
-
-    animate();
-
-    const onClick = (event) => {
-      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-      raycaster.setFromCamera(mouse, this.camera);
-      const intersects = raycaster.intersectObject(cube);
-
-      if (intersects.length > 0) {
-        this.isFadingOut = true;
-
-        setTimeout(() => {
-          document.getElementById('fullscreen-video').style.display = 'block';
-          this.isFadingIn = true;
-          document.getElementById('fullscreen-video').play();
-          this.isButtonVisible = true;
-        }, 1000);
-      }
-    }
-
-    // Listen for click events
-    window.addEventListener('click', onClick);
+    document.addEventListener('keydown', this.keyDownHandler);
+    document.addEventListener('keyup', this.keyUpHandler);
   },
   methods: {
-    onWindowResize(){
-      const width = window.innerWidth;
-      const height = window.innerHeight;
-      this.renderer.setSize(width, height);
-      this.camera.aspect = width / height;
-      this.camera.updateProjectionMatrix();
+    initThreeScene() {
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0xffffff);
+
+      // Camera Setup
+      this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 100);
+      this.camera.position.set(10, 5, 10);
+      this.camera.lookAt(0, 4, 0);
+
+      // Renderer Setup
+      this.renderer = new THREE.WebGLRenderer({ antialias: true });
+      this.renderer.setSize(window.innerWidth, window.innerHeight);
+      this.renderer.shadowMap.enabled = true;
+      this.$refs.sceneContainer.appendChild(this.renderer.domElement);
+
+      // Orbit Controls
+      this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+
+      // Lighting
+      const spotLight = new THREE.SpotLight(0xff0000, 10, 10);
+      spotLight.position.set(1, 5, 1);
+      spotLight.castShadow = true;
+      scene.add(spotLight);
+
+      const texture = new THREE.TextureLoader().load(wallTexture);
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+
+      const wallMaterial = new THREE.MeshBasicMaterial({ map: texture });
+
+      const color = 0xFFFFFF;
+      const intensity = 100;
+      const light = new THREE.SpotLight( color, intensity );
+      light.castShadow = true;
+      light.position.set( 5, 20, 5 );
+      light.target.position.set( - 4, 0, - 4 );
+
+      const SpotLightHelper = new THREE.SpotLightHelper(light);
+      scene.add( light );
+      scene.add( light.target );
+      scene.add( SpotLightHelper);
+    
+      const mesh = new THREE.Mesh( new THREE.PlaneGeometry( 100, 100 ), new THREE.MeshPhongMaterial( { color: 0xcbcbcb, depthWrite: false } ) );
+      mesh.rotation.x = - Math.PI / 2;
+      mesh.receiveShadow = true;
+      scene.add( mesh );
+
+      const wall_1 = new THREE.BoxGeometry(10, 10, 1);
+      const wall_1_prefab = new THREE.Mesh(wall_1, new THREE.MeshBasicMaterial({ color: '#ffff00' }));
+      wall_1_prefab.position.set(0, 4.5, -5.5);
+      wall_1_prefab.castShadow = true;
+      scene.add(wall_1_prefab);
+
+      const wall_2 = new THREE.BoxGeometry(1, 10, 10);
+      const wall_2_prefab = new THREE.Mesh(wall_2, new THREE.MeshBasicMaterial({ color: '#ffff00' }));
+      wall_2_prefab.position.set(-5.5, 4.5, 0);
+      wall_2_prefab.castShadow = true;
+      scene.add(wall_2_prefab);
+
+      const frame_1 = new THREE.BoxGeometry(1, 1, 0.1);
+      const frame_1_prefab = new THREE.Mesh(frame_1, wallMaterial);
+      frame_1_prefab.position.set(2, 4, -5);
+      scene.add(frame_1_prefab);
+
+      const frame_2_prefab = new THREE.Mesh(frame_1, wallMaterial);
+      frame_2_prefab.position.set(0, 4, -5);
+      scene.add(frame_2_prefab);
+
+      const frame_3_prefab = new THREE.Mesh(frame_1, wallMaterial);
+      frame_3_prefab.position.set(-2, 4, -5);
+      scene.add(frame_3_prefab);
+
+      const area = new THREE.TorusGeometry(1,0.1,16,100);
+      const material = new THREE.MeshBasicMaterial({color: 0xffff00});
+      const torus = new THREE.Mesh(area, material);
+      torus.position.set(1,0,3);
+      torus.rotation.x = 1.6;
+
+      scene.add(torus);
+      this.torus = torus;
+
+
+      const video = document.createElement('video');
+      video.src = 'assets/random.mp4'; 
+      video.crossOrigin = 'anonymous'; 
+      video.loop = true;
+      video.muted = true;
+      video.playsInline = true;
+      video.autoplay = true;
+      video.play();
+
+      const videoTexture = new THREE.VideoTexture(video);
+
+      const videoMaterial = new THREE.MeshBasicMaterial({ map: videoTexture });
+
+      const sideMaterial1 = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+      const sideMaterial2 = new THREE.MeshBasicMaterial({ color: 0x00ff00 }); 
+      const sideMaterial3 = new THREE.MeshBasicMaterial({ color: 0x0000ff }); 
+      const sideMaterial4 = new THREE.MeshBasicMaterial({ color: 0xffff00 }); 
+      const sideMaterial5 = new THREE.MeshBasicMaterial({ color: 0x00ffff }); 
+
+      const materials = [
+        videoMaterial,  
+        sideMaterial2,  
+        sideMaterial1,  
+        sideMaterial3,  
+        sideMaterial4,  
+        sideMaterial5   
+      ];
+
+      const geometry = new THREE.BoxGeometry(0.5, 6, 9);
+      const cube = new THREE.Mesh(geometry, materials);
+      cube.position.set(-5,5,0);
+      scene.add(cube);
+
+      const onClick = (event) => {
+        this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+        const intersects = this.raycaster.intersectObject(cube);
+        if (intersects.length > 0) {
+          this.isFadingOut = true;
+
+          setTimeout(() => {
+            document.getElementById('fullscreen-video').style.display = 'block';
+            this.isFadingIn = true;
+            document.getElementById('fullscreen-video').play();
+            this.isButtonVisible = true;
+          }, 1000);
+        }
+      }
+      window.addEventListener('click', onClick);
+
+      // Attach the scene to this
+      this.scene = scene;
+
+      // Start rendering
+      this.animate();
+
+
     },
+    loadModel() {
+      const loader = new GLTFLoader();
+      loader.load('assets/Soldier.glb', (gltf) => {
+        let model = gltf.scene;
+
+        if (gltf.animations.length > 0) {
+          this.mixer = new THREE.AnimationMixer(model);
+
+          // Access animations by their index or name
+          this.actions.idle = this.mixer.clipAction(gltf.animations[0]); 
+          this.actions.walk = this.mixer.clipAction(gltf.animations[3]); 
+          this.actions.run = this.mixer.clipAction(gltf.animations[1]); 
+
+          // Play idle action
+          this.actions.idle.play();
+          this.currentAction = this.actions.idle;
+        } else {
+          console.error("No animations found in the model.");
+        }
+
+        model.traverse((child) => {
+          if (child.isMesh) child.castShadow = true;
+        });
+
+        this.model = model;
+        this.scene.add(model);
+      });
+
+    },
+    animate() {
+      const clock = new THREE.Clock();
+      const renderLoop = () => {
+        const delta = clock.getDelta();
+        if (this.mixer) this.mixer.update(delta);
+
+        let moveDirection = new THREE.Vector3();
+        if (this.keys['W']) moveDirection.z -= 1;
+        if (this.keys['S']) moveDirection.z += 1;
+        if (this.keys['A']) moveDirection.x -= 1;
+        if (this.keys['D']) moveDirection.x += 1;
+
+
+        if (moveDirection.length() > 0) {
+          moveDirection.normalize().multiplyScalar(0.05);
+          this.model.position.add(moveDirection);
+
+          // Rotate the model to face the direction of movement
+          this.model.rotation.y = Math.atan2(-moveDirection.x, -moveDirection.z);
+
+          if (this.currentAction !== this.actions.walk) {
+            this.currentAction.stop();
+            this.currentAction = this.actions.walk;
+            this.currentAction.play();
+          }
+        } else {
+          if (this.currentAction !== this.actions.idle) {
+            this.currentAction.stop();
+            this.currentAction = this.actions.idle;
+            this.currentAction.play();
+          }
+        }
+
+        const bounder = new THREE.Box3().setFromObject(this.torus);
+        if( this.model != null) this.checkCollider(this.torus, bounder, this.model);
+        // Render the scene
+        this.renderer.render(this.scene, this.camera);
+        requestAnimationFrame(renderLoop);
+      };
+      renderLoop();
+    },
+    onWindowResize() {
+      this.camera.aspect = window.innerWidth / window.innerHeight;
+      this.camera.updateProjectionMatrix();
+      this.renderer.setSize(window.innerWidth, window.innerHeight);
+    },
+    onKeyDown(event) {
+      if (event.code === 'Space' && this.isTooltip) {
+        this.toggleFPSMode();
+      }
+    },
+    toggleFPSMode() {
+      if (this.isFPSMode) {
+        this.exitFPSMode();
+      } else {
+        this.enterFPSMode();
+      }
+    },
+    enterFPSMode() {
+      document.removeEventListener('keydown', this.keyDownHandler);
+      document.removeEventListener('keyup', this.keyUpHandler);
+
+      let textures = [texture_1, texture_2, texture_3, texture_3, texture_3];
+      let materials = [];
+      for (let i = 0; i < textures.length; i++) {
+        const texture = new THREE.TextureLoader().load(textures[i]);
+        const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 1 });
+        materials.push(material);
+      }
+
+      const cubeGeometry = new THREE.BoxGeometry(2, 1, 0.1);
+      let blocks = [];
+      for (let i = 0; i < materials.length; i++) {
+        const block = new THREE.Mesh(cubeGeometry, materials[i]);
+        blocks.push(block);
+      }
+
+      const a = 0.2;
+      const b = 0;
+      const c = 0;    
+
+      const positions = [
+        { x: -1.2 },
+        { x: 1 },
+        { x: 3.2 },
+        { x: 5.4 },
+        { x: 8 }
+      ];
+
+      positions.forEach((pos, index) => {
+        const z = a * Math.pow(pos.x - 1, 2) + b * pos.x + c;
+        const block = blocks[index];
+        block.position.set(pos.x, 2, z);
+
+        const slope = 2 * a * (pos.x - 1) + b;
+        const angle = Math.atan(slope);
+        block.rotation.y = -angle;
+
+        this.scene.add(block);
+      });
+
+      let isDragging = false;
+      let prevMousePosition = { x: 0, y: 0 };
+
+      const onMouseDown = (event) => {
+        isDragging = true;
+        prevMousePosition = { x: event.clientX || event.touches[0].clientX, y: event.clientY || event.touches[0].clientY };
+      };
+
+      const onMouseMove = (event) => {
+        if (!isDragging) return;
+
+        // Use touch or mouse coordinates
+        const currentX = event.clientX || event.touches[0].clientX;
+        const deltaX = currentX - prevMousePosition.x;
+
+        positions.forEach((pos) => {
+          pos.x += deltaX * 0.01; // Adjust sensitivity
+        });
+
+        prevMousePosition = { x: currentX, y: event.clientY || event.touches[0].clientY };
+      };
+
+      const onMouseUp = () => {
+        isDragging = false;
+      };
+
+      // Add both mouse and touch event listeners
+      document.addEventListener('mousedown', onMouseDown);
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+
+      // Add touch event listeners
+      document.addEventListener('touchstart', onMouseDown);
+      document.addEventListener('touchmove', onMouseMove);
+      document.addEventListener('touchend', onMouseUp);
+
+
+      const updateBlocks = () => {
+        positions.forEach((pos, index) => {
+          const z = a * Math.pow(pos.x - 1, 2) + b * pos.x + c;
+          const block = blocks[index];
+          const currentPos = block.position;
+
+          block.position.x += (pos.x - currentPos.x) * 0.1;
+          block.position.z += (z - currentPos.z) * 0.1;
+
+          const slope = 2 * a * (pos.x - 1) + b;
+          const angle = Math.atan(slope);
+          block.rotation.y += (-angle - block.rotation.y) * 0.1;
+        });
+      };
+
+      const animate = () => {
+        requestAnimationFrame(animate);
+        updateBlocks();
+        this.renderer.render(this.scene, this.camera);
+      };
+
+      animate();
+
+
+      // Switch to FPS mode
+      this.isFPSMode = true;
+      this.controls.dispose();
+
+      this.model.position.set(1, 0, 3);
+      this.camera.position.set(1, 2, 3);
+      this.camera.lookAt(1, 2, 0); // Look towards the center
+
+      // Add buttons for the carousel
+      const nextButton = document.createElement('button');
+      nextButton.innerHTML = 'Next';
+      nextButton.style.position = 'absolute';
+      nextButton.style.top = '20px';
+      nextButton.style.right = '20px';
+      document.body.appendChild(nextButton);
+
+      const prevButton = document.createElement('button');
+      prevButton.innerHTML = 'Previous';
+      prevButton.style.position = 'absolute';
+      prevButton.style.top = '20px';
+      prevButton.style.right = '80px';
+      document.body.appendChild(prevButton);
+    },
+
+    exitFPSMode() {
+      if (this.nextButton && this.prevButton) {
+        document.body.removeChild(this.nextButton);
+        document.body.removeChild(this.prevButton);
+      }
+      document.addEventListener('keydown', (event) => {
+        this.keys[event.key.toUpperCase()] = true;
+      });
+
+      document.addEventListener('keyup', (event) => {
+        this.keys[event.key.toUpperCase()] = false;
+      });
+      this.isFPSMode = false;
+      // Restore OrbitControls
+      this.controls.dispose();
+      this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+
+      this.camera.position.set(10, 5, 10);
+      this.camera.lookAt(0, 4, 0);
+
+    },
+    // movePlayer() {
+    //   const speed = 0.1;
+    //   const moveVector = new THREE.Vector3();
+    //   if (this.movement.forward) moveVector.z -= speed;
+    //   if (this.movement.backward) moveVector.z += speed;
+    //   if (this.movement.left) moveVector.x -= speed;
+    //   if (this.movement.right) moveVector.x += speed;
+
+    //   if (moveVector.length() > 0) {
+    //     moveVector.normalize();
+    //     this.controls.object.position.add(moveVector);
+    //     this.model.position.add(moveVector);
+    //   }
+    // },
     exitFullscreen() {
       this.isFadingIn = false;
       this.isFadingOut = false;
@@ -316,10 +462,31 @@ export default {
       video.style.display = 'none';
 
       this.$refs.sceneContainer.classList.remove('fade-out');
-    }
+    },
+    checkCollider(torus, bounder, object){
+      bounder.setFromObject(torus);
+      const objectBounder = new THREE.Box3().setFromObject(object);
+
+      if( bounder.intersectsBox(objectBounder)){
+        this.isTooltip = true;
+      }else{
+        this.isTooltip = false;
+      }
+    },
+    keyDownHandler(event){
+      this.keys[event.key.toUpperCase()] = true;
+    },
+    keyUpHandler(event){
+      this.keys[event.key.toUpperCase()] = false;
+    },
+  },
+  beforeDestroy() {
+    window.removeEventListener('resize', this.onWindowResize);
+    window.removeEventListener('keydown', this.onKeyDown);
   }
 };
 </script>
+
 
 <style scoped>
   body { margin: 0; overflow: hidden; }
@@ -342,16 +509,22 @@ export default {
   }
 
   .three-container {
-  width: 100vw;
-  height: 100vh;
-  position: relative;
-  background-color: #000;
-  transition: opacity 1s ease-out;
-  opacity: 1;
-}
+    width: 100vw;
+    height: 100vh;
+    position: relative;
+    background-color: #000;
+    transition: opacity 1s ease-out;
+    opacity: 1;
+  }
 
   .three-container.fade-out {
     opacity: 0;
+  }
+
+  #toggle-button {
+    position: absolute;
+    top:0;
+    z-index: 20;
   }
   
   #exit-button {
@@ -363,6 +536,24 @@ export default {
 
   #exit-button.fade-in{
     display:block;
+  }
+  .tooltip{
+    background-color: white;
+    color: black;
+    position: absolute;
+    text-align: center;
+    margin-top: 1rem;
+    top:0;
+    left: 50%;
+    transform: translate(-50%, 0%);
+    padding: 1em;
+    width: fit-content;
+    justify-self: center;
+    height: auto;
+    display: none;
+  }
+  .tooltip.visible{
+    display: block;
   }
 </style>
 
