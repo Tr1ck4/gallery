@@ -1,6 +1,7 @@
 <template>
   <div>
-    <div ref="sceneContainer" class="three-container" :class="{ 'fade-out': isFadingOut }"></div>
+    <canvas id="canvas1" ref="sceneContainer" class="three-container" :class="{ 'fade-out': isFadingOut }"></canvas>
+    <canvas id="canvas2" ref="fpsContainer" class="fps-container" :class="{ 'fade-out': !isFadingOut }"></canvas>
     <video id="fullscreen-video" controls ref="fullscreenVideo" :class="{ 'fade-in': isFadingIn }">
       <source src="/assets/random.mp4" type="video/mp4">
       Your browser does not support the video tag.
@@ -8,9 +9,9 @@
     <button id="exit-button" ref="exitButton" @click="exitFullscreen" :class="{ 'fade-in': isButtonVisible }">
       Exit Fullscreen
     </button>
-    <button id="toggle-button" ref="toggleButton" @click="enterFPSMode">
+    <!-- <button id="toggle-button" ref="toggleButton" @click="enterFPSMode">
       something
-    </button>
+    </button> -->
 
     <div class="tooltip" :class="{ 'visible': isTooltip }"> Press space to enter new mode</div>
   </div>
@@ -55,6 +56,7 @@ export default {
   mounted() {
     this.initThreeScene();
     this.loadModel();
+    this.initFPSScene();
     window.addEventListener('resize', this.onWindowResize);
     window.addEventListener('keydown', this.onKeyDown);
 
@@ -63,8 +65,9 @@ export default {
   },
   methods: {
     initThreeScene() {
-      const scene = new THREE.Scene();
-      scene.background = new THREE.Color(0xffffff);
+      const canvas = document.getElementById('canvas1');
+      this.scene = new THREE.Scene();
+      this.scene.background = new THREE.Color(0xffffff);
 
       // Camera Setup
       this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 100);
@@ -72,10 +75,10 @@ export default {
       this.camera.lookAt(0, 4, 0);
 
       // Renderer Setup
-      this.renderer = new THREE.WebGLRenderer({ antialias: true });
+      this.renderer = new THREE.WebGLRenderer({ antialias: true, canvas: canvas });
       this.renderer.setSize(window.innerWidth, window.innerHeight);
       this.renderer.shadowMap.enabled = true;
-      this.$refs.sceneContainer.appendChild(this.renderer.domElement);
+      // this.$refs.sceneContainer.appendChild(this.renderer.domElement);
 
       // Orbit Controls
       this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -84,7 +87,7 @@ export default {
       const spotLight = new THREE.SpotLight(0xff0000, 10, 10);
       spotLight.position.set(1, 5, 1);
       spotLight.castShadow = true;
-      scene.add(spotLight);
+      this.scene.add(spotLight);
 
       const texture = new THREE.TextureLoader().load(wallTexture);
       texture.wrapS = THREE.RepeatWrapping;
@@ -100,39 +103,39 @@ export default {
       light.target.position.set( - 4, 0, - 4 );
 
       const SpotLightHelper = new THREE.SpotLightHelper(light);
-      scene.add( light );
-      scene.add( light.target );
-      scene.add( SpotLightHelper);
+      this.scene.add( light );
+      this.scene.add( light.target );
+      this.scene.add( SpotLightHelper);
     
       const mesh = new THREE.Mesh( new THREE.PlaneGeometry( 100, 100 ), new THREE.MeshPhongMaterial( { color: 0xcbcbcb, depthWrite: false } ) );
       mesh.rotation.x = - Math.PI / 2;
       mesh.receiveShadow = true;
-      scene.add( mesh );
+      this.scene.add( mesh );
 
       const wall_1 = new THREE.BoxGeometry(10, 10, 1);
       const wall_1_prefab = new THREE.Mesh(wall_1, new THREE.MeshBasicMaterial({ color: '#ffff00' }));
       wall_1_prefab.position.set(0, 4.5, -5.5);
       wall_1_prefab.castShadow = true;
-      scene.add(wall_1_prefab);
+      this.scene.add(wall_1_prefab);
 
       const wall_2 = new THREE.BoxGeometry(1, 10, 10);
       const wall_2_prefab = new THREE.Mesh(wall_2, new THREE.MeshBasicMaterial({ color: '#ffff00' }));
       wall_2_prefab.position.set(-5.5, 4.5, 0);
       wall_2_prefab.castShadow = true;
-      scene.add(wall_2_prefab);
+      this.scene.add(wall_2_prefab);
 
       const frame_1 = new THREE.BoxGeometry(1, 1, 0.1);
       const frame_1_prefab = new THREE.Mesh(frame_1, wallMaterial);
       frame_1_prefab.position.set(2, 4, -5);
-      scene.add(frame_1_prefab);
+      this.scene.add(frame_1_prefab);
 
       const frame_2_prefab = new THREE.Mesh(frame_1, wallMaterial);
       frame_2_prefab.position.set(0, 4, -5);
-      scene.add(frame_2_prefab);
+      this.scene.add(frame_2_prefab);
 
       const frame_3_prefab = new THREE.Mesh(frame_1, wallMaterial);
       frame_3_prefab.position.set(-2, 4, -5);
-      scene.add(frame_3_prefab);
+      this.scene.add(frame_3_prefab);
 
       const area = new THREE.TorusGeometry(1,0.1,16,100);
       const material = new THREE.MeshBasicMaterial({color: 0xffff00});
@@ -140,7 +143,7 @@ export default {
       torus.position.set(1,0,3);
       torus.rotation.x = 1.6;
 
-      scene.add(torus);
+      this.scene.add(torus);
       this.torus = torus;
 
 
@@ -175,7 +178,7 @@ export default {
       const geometry = new THREE.BoxGeometry(0.5, 6, 9);
       const cube = new THREE.Mesh(geometry, materials);
       cube.position.set(-5,5,0);
-      scene.add(cube);
+      this.scene.add(cube);
 
       const onClick = (event) => {
         this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -195,13 +198,48 @@ export default {
       }
       window.addEventListener('click', onClick);
 
-      // Attach the scene to this
-      this.scene = scene;
+      const animate = () => {
+        const clock = new THREE.Clock();
+        const renderLoop = () => {
+          const delta = clock.getDelta();
+          if (this.mixer) this.mixer.update(delta);
 
-      // Start rendering
-      this.animate();
+          let moveDirection = new THREE.Vector3();
+          if (this.keys['W']) moveDirection.z -= 1;
+          if (this.keys['S']) moveDirection.z += 1;
+          if (this.keys['A']) moveDirection.x -= 1;
+          if (this.keys['D']) moveDirection.x += 1;
 
 
+          if (moveDirection.length() > 0) {
+            moveDirection.normalize().multiplyScalar(0.05);
+            this.model.position.add(moveDirection);
+
+            // Rotate the model to face the direction of movement
+            this.model.rotation.y = Math.atan2(-moveDirection.x, -moveDirection.z);
+
+            if (this.currentAction !== this.actions.walk) {
+              this.currentAction.stop();
+              this.currentAction = this.actions.walk;
+              this.currentAction.play();
+            }
+          } else {
+            if (this.currentAction !== this.actions.idle) {
+              this.currentAction.stop();
+              this.currentAction = this.actions.idle;
+              this.currentAction.play();
+            }
+          }
+
+          const bounder = new THREE.Box3().setFromObject(this.torus);
+          if( this.model != null) this.checkCollider(this.torus, bounder, this.model);
+          // Render the scene
+          this.renderer.render(this.scene, this.camera);
+          requestAnimationFrame(renderLoop);
+        };
+        renderLoop();
+      }
+      animate();
     },
     loadModel() {
       const loader = new GLTFLoader();
@@ -232,67 +270,44 @@ export default {
       });
 
     },
-    animate() {
-      const clock = new THREE.Clock();
-      const renderLoop = () => {
-        const delta = clock.getDelta();
-        if (this.mixer) this.mixer.update(delta);
-
-        let moveDirection = new THREE.Vector3();
-        if (this.keys['W']) moveDirection.z -= 1;
-        if (this.keys['S']) moveDirection.z += 1;
-        if (this.keys['A']) moveDirection.x -= 1;
-        if (this.keys['D']) moveDirection.x += 1;
-
-
-        if (moveDirection.length() > 0) {
-          moveDirection.normalize().multiplyScalar(0.05);
-          this.model.position.add(moveDirection);
-
-          // Rotate the model to face the direction of movement
-          this.model.rotation.y = Math.atan2(-moveDirection.x, -moveDirection.z);
-
-          if (this.currentAction !== this.actions.walk) {
-            this.currentAction.stop();
-            this.currentAction = this.actions.walk;
-            this.currentAction.play();
-          }
-        } else {
-          if (this.currentAction !== this.actions.idle) {
-            this.currentAction.stop();
-            this.currentAction = this.actions.idle;
-            this.currentAction.play();
-          }
-        }
-
-        const bounder = new THREE.Box3().setFromObject(this.torus);
-        if( this.model != null) this.checkCollider(this.torus, bounder, this.model);
-        // Render the scene
-        this.renderer.render(this.scene, this.camera);
-        requestAnimationFrame(renderLoop);
-      };
-      renderLoop();
-    },
+    
     onWindowResize() {
       this.camera.aspect = window.innerWidth / window.innerHeight;
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(window.innerWidth, window.innerHeight);
     },
     onKeyDown(event) {
-      if (event.code === 'Space' && this.isTooltip) {
+      if (event.code === 'Space' && (this.isTooltip || !this.isFPSMode )) {
         this.toggleFPSMode();
       }
     },
     toggleFPSMode() {
       if (this.isFPSMode) {
-        this.exitFPSMode();
+        this.isFPSMode = false;
+        this.isFadingOut = true;
+        document.getElementById("canvas1").style.display = "none";
+        document.getElementById("canvas2").style.display = "flex";
+
       } else {
-        this.enterFPSMode();
+        this.isFPSMode = true;
+        this.isFadingOut = false;
+        
+        document.getElementById("canvas1").style.display = "flex";
+        document.getElementById("canvas2").style.display = "none";
       }
     },
-    enterFPSMode() {
+    initFPSScene() {
+      const canvas = document.getElementById('canvas2');
+      this.fpsscene = new THREE.Scene();
+      this.fpsscene.background = new THREE.Color(0x000000); 
+      this.fpscamera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 100);
       document.removeEventListener('keydown', this.keyDownHandler);
       document.removeEventListener('keyup', this.keyUpHandler);
+
+      this.fpsrenderer = new THREE.WebGLRenderer({ antialias: true, canvas: canvas});
+      this.fpsrenderer.setSize(window.innerWidth, window.innerHeight);
+      this.fpsrenderer.shadowMap.enabled = true;
+      // this.$refs.fpsContainer.appendChild(this.fpsrenderer.domElement);
 
       let textures = [texture_1, texture_2, texture_3, texture_3, texture_3];
       let materials = [];
@@ -330,7 +345,7 @@ export default {
         const angle = Math.atan(slope);
         block.rotation.y = -angle;
 
-        this.scene.add(block);
+        this.fpsscene.add(block);
       });
 
       let isDragging = false;
@@ -386,21 +401,17 @@ export default {
       };
 
       const animate = () => {
-        requestAnimationFrame(animate);
+        this.fpsrenderer.render(this.fpsscene, this.fpscamera);
         updateBlocks();
-        this.renderer.render(this.scene, this.camera);
+        requestAnimationFrame(animate);
       };
 
       animate();
-
-
-      // Switch to FPS mode
-      this.isFPSMode = true;
       this.controls.dispose();
 
-      this.model.position.set(1, 0, 3);
-      this.camera.position.set(1, 2, 3);
-      this.camera.lookAt(1, 2, 0); // Look towards the center
+      // this.model.position.set(1, 0, 3);
+      this.fpscamera.position.set(1, 2, 3);
+      this.fpscamera.lookAt(1, 2, 0); // Look towards the center
 
       // Add buttons for the carousel
       const nextButton = document.createElement('button');
@@ -418,41 +429,7 @@ export default {
       document.body.appendChild(prevButton);
     },
 
-    exitFPSMode() {
-      if (this.nextButton && this.prevButton) {
-        document.body.removeChild(this.nextButton);
-        document.body.removeChild(this.prevButton);
-      }
-      document.addEventListener('keydown', (event) => {
-        this.keys[event.key.toUpperCase()] = true;
-      });
-
-      document.addEventListener('keyup', (event) => {
-        this.keys[event.key.toUpperCase()] = false;
-      });
-      this.isFPSMode = false;
-      // Restore OrbitControls
-      this.controls.dispose();
-      this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-
-      this.camera.position.set(10, 5, 10);
-      this.camera.lookAt(0, 4, 0);
-
-    },
-    // movePlayer() {
-    //   const speed = 0.1;
-    //   const moveVector = new THREE.Vector3();
-    //   if (this.movement.forward) moveVector.z -= speed;
-    //   if (this.movement.backward) moveVector.z += speed;
-    //   if (this.movement.left) moveVector.x -= speed;
-    //   if (this.movement.right) moveVector.x += speed;
-
-    //   if (moveVector.length() > 0) {
-    //     moveVector.normalize();
-    //     this.controls.object.position.add(moveVector);
-    //     this.model.position.add(moveVector);
-    //   }
-    // },
+    
     exitFullscreen() {
       this.isFadingIn = false;
       this.isFadingOut = false;
@@ -462,6 +439,7 @@ export default {
       video.style.display = 'none';
 
       this.$refs.sceneContainer.classList.remove('fade-out');
+      this.initThreeScene();
     },
     checkCollider(torus, bounder, object){
       bounder.setFromObject(torus);
@@ -508,17 +486,36 @@ export default {
     opacity: 1;
   }
 
-  .three-container {
+  .fps-container {
+    display: none;
     width: 100vw;
     height: 100vh;
     position: relative;
     background-color: #000;
     transition: opacity 1s ease-out;
     opacity: 1;
+    z-index: 1;
+  }
+
+  .three-container {
+    display:flex;
+    width: 100vw;
+    height: 100vh;
+    position: relative;
+    background-color: #000;
+    transition: opacity 1s ease-out;
+    opacity: 1;
+    z-index: 1;
   }
 
   .three-container.fade-out {
     opacity: 0;
+    z-index: -1;
+  }
+
+  .fps-container.fade-out {
+    opacity: 0;
+    z-index: -1;
   }
 
   #toggle-button {
@@ -553,7 +550,8 @@ export default {
     display: none;
   }
   .tooltip.visible{
-    display: block;
+    display: flex;
+    z-index: 2;
   }
 </style>
 
