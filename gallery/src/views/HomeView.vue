@@ -5,12 +5,6 @@
       <source src="/assets/random.mp4" type="video/mp4">
       Your browser does not support the video tag.
     </video>
-    <button id="exit-button" ref="exitButton" @click="exitFullscreen" :class="{ 'fade-in': isButtonVisible }">
-      Exit Fullscreen
-    </button>
-    <button id="toggle-button" ref="toggleButton" @click="enterFPSMode">
-      something
-    </button>
 
     <div class="tooltip" :class="{ 'visible': isTooltip }"> Press space to enter new mode</div>
   </div>
@@ -45,6 +39,7 @@ export default {
       camera: null,
       renderer: null,
       raycaster: new THREE.Raycaster(),
+      pointer: new THREE.Vector2(),
       controls: null,
       isFPSMode: false,
       isFadingIn: false,
@@ -53,24 +48,30 @@ export default {
       isTooltip: false,
       torus: null,
       keys: {},
+      INTERSECTED: null,
       stats: new Stats(),
     };
   },
   mounted() {
     this.initThreeScene();
-    this.loadModel();
-    //window.addEventListener('resize', this.onWindowResize);
+    window.addEventListener('resize', this.onWindowResize);
+    document.addEventListener( 'mousemove', this.onMouseMove );
     // window.addEventListener('keydown', this.onKeyDown);
 
     document.addEventListener('keydown', this.keyDownHandler);
     document.addEventListener('keyup', this.keyUpHandler);
   },
   methods: {
+    onMouseMove(event){
+      this.pointer.x = (event.clientX / window.innerWidth) *2 -1;
+      this.pointer.y = - (event.clientY / window.innerHeight) *2 + 1;
+      
+    },
     initThreeScene() {
       
       const scene = new THREE.Scene();
       scene.background = new THREE.Color( 0xcccccc );
-      scene.fog = new THREE.FogExp2( 0xcccccc, 0.002 );
+      scene.fog = new THREE.FogExp2( 0xcccccc, 0.02 );
 
       // Renderer Setup
       this.renderer = new THREE.WebGLRenderer({ antialias: false });
@@ -96,7 +97,7 @@ export default {
       this.controls.dampingFactor = 0.05;
       this.controls.screenSpacePanning = false;
       this.controls.minDistance = 50;
-      this.controls.maxDistance = 500;
+      this.controls.maxDistance = 100;
 
       this.controls.maxPolarAngle = Math.PI/2;
 
@@ -110,9 +111,9 @@ export default {
       const texture_3 = new THREE.TextureLoader().load(wall_3);
       texture_3.colorSpace = THREE.SRGBColorSpace;
 
-      const house_1 = new THREE.MeshPhongMaterial({ map: texture_1, flatShading: true });
-      const house_2 = new THREE.MeshPhongMaterial({ map: texture_2, flatShading: true });
-      const house_3 = new THREE.MeshPhongMaterial({ map: texture_3, flatShading: true });
+      const house_1 = new THREE.MeshLambertMaterial({ map: texture_1, flatShading: true });
+      const house_2 = new THREE.MeshLambertMaterial({ map: texture_2, flatShading: true });
+      const house_3 = new THREE.MeshLambertMaterial({ map: texture_3, flatShading: true });
       const house_texture = [house_1, house_2, house_3];
 
       // Init house value
@@ -213,78 +214,34 @@ export default {
       // Start rendering
       this.animate();
     },
-    loadModel() {
-      const loader = new GLTFLoader();
-      loader.load('assets/Soldier.glb', (gltf) => {
-        let model = gltf.scene;
-
-        if (gltf.animations.length > 0) {
-          this.mixer = new THREE.AnimationMixer(model);
-
-          // Access animations by their index or name
-          this.actions.idle = this.mixer.clipAction(gltf.animations[0]); 
-          this.actions.walk = this.mixer.clipAction(gltf.animations[3]); 
-          this.actions.run = this.mixer.clipAction(gltf.animations[1]); 
-
-          // Play idle action
-          this.actions.idle.play();
-          this.currentAction = this.actions.idle;
-        } else {
-          console.error("No animations found in the model.");
-        }
-
-        model.traverse((child) => {
-          if (child.isMesh) child.castShadow = true;
-        });
-
-        this.model = model;
-        this.scene.add(model);
-      });
-
-    },
     animate() {
-      
       const clock = new THREE.Clock();
+      
+      this.raycaster.setFromCamera( this.pointer, this.camera );
+      const intersects = this.raycaster.intersectObjects(this.scene.children, false);
+      if ( intersects.length > 0 ) {
+
+      if ( this.INTERSECTED != intersects[ 0 ].object ) {
+
+        if ( this.INTERSECTED ) this.INTERSECTED.material.color.setHex( this.INTERSECTED.currentHex );
+
+        this.INTERSECTED = intersects[ 0 ].object;
+        this.INTERSECTED.currentHex = this.INTERSECTED.material.color.getHex();
+        this.INTERSECTED.material.color.setHex( 0xff0000 );
+
+      }
+
+      } else {
+
+      if ( this.INTERSECTED ) this.INTERSECTED.material.color.setHex( this.INTERSECTED.currentHex );
+
+      this.INTERSECTED = null;
+
+      }
+
       this.controls.update();
-      const renderLoop = () => {
-        const delta = clock.getDelta();
-        if (this.mixer) this.mixer.update(delta);
-
-        let moveDirection = new THREE.Vector3();
-        if (this.keys['W']) moveDirection.z -= 1;
-        if (this.keys['S']) moveDirection.z += 1;
-        if (this.keys['A']) moveDirection.x -= 1;
-        if (this.keys['D']) moveDirection.x += 1;
-
-
-        if (moveDirection.length() > 0) {
-          moveDirection.normalize().multiplyScalar(0.05);
-          this.model.position.add(moveDirection);
-
-          // Rotate the model to face the direction of movement
-          this.model.rotation.y = Math.atan2(-moveDirection.x, -moveDirection.z);
-
-          if (this.currentAction !== this.actions.walk) {
-            this.currentAction.stop();
-            this.currentAction = this.actions.walk;
-            this.currentAction.play();
-          }
-        } else {
-          if (this.currentAction !== this.actions.idle) {
-            this.currentAction.stop();
-            this.currentAction = this.actions.idle;
-            this.currentAction.play();
-          }
-        }
-
-        // const bounder = new THREE.Box3().setFromObject(this.torus);
-        // if( this.model != null) this.checkCollider(this.torus, bounder, this.model);
-        // Render the scene
-        this.renderer.render(this.scene, this.camera);
-        this.stats.update();
-        requestAnimationFrame(renderLoop);
-      };
-      renderLoop();
+      this.renderer.render(this.scene, this.camera);
+      this.stats.update();
     },
     onWindowResize() {
       this.camera.aspect = window.innerWidth / window.innerHeight;
@@ -295,186 +252,6 @@ export default {
       if (event.code === 'Space' && this.isTooltip) {
         this.toggleFPSMode();
       }
-    },
-    toggleFPSMode() {
-      if (this.isFPSMode) {
-        this.exitFPSMode();
-      } else {
-        this.enterFPSMode();
-      }
-    },
-    enterFPSMode() {
-      document.removeEventListener('keydown', this.keyDownHandler);
-      document.removeEventListener('keyup', this.keyUpHandler);
-
-      let textures = [texture_1, texture_2, texture_3, texture_3, texture_3];
-      let materials = [];
-      for (let i = 0; i < textures.length; i++) {
-        const texture = new THREE.TextureLoader().load(textures[i]);
-        const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 1 });
-        materials.push(material);
-      }
-
-      const cubeGeometry = new THREE.BoxGeometry(2, 1, 0.1);
-      let blocks = [];
-      for (let i = 0; i < materials.length; i++) {
-        const block = new THREE.Mesh(cubeGeometry, materials[i]);
-        blocks.push(block);
-      }
-
-      const a = 0.2;
-      const b = 0;
-      const c = 0;    
-
-      const positions = [
-        { x: -1.2 },
-        { x: 1 },
-        { x: 3.2 },
-        { x: 5.4 },
-        { x: 8 }
-      ];
-
-      positions.forEach((pos, index) => {
-        const z = a * Math.pow(pos.x - 1, 2) + b * pos.x + c;
-        const block = blocks[index];
-        block.position.set(pos.x, 2, z);
-
-        const slope = 2 * a * (pos.x - 1) + b;
-        const angle = Math.atan(slope);
-        block.rotation.y = -angle;
-
-        this.scene.add(block);
-      });
-
-      let isDragging = false;
-      let prevMousePosition = { x: 0, y: 0 };
-
-      const onMouseDown = (event) => {
-        isDragging = true;
-        prevMousePosition = { x: event.clientX || event.touches[0].clientX, y: event.clientY || event.touches[0].clientY };
-      };
-
-      const onMouseMove = (event) => {
-        if (!isDragging) return;
-
-        // Use touch or mouse coordinates
-        const currentX = event.clientX || event.touches[0].clientX;
-        const deltaX = currentX - prevMousePosition.x;
-
-        positions.forEach((pos) => {
-          pos.x += deltaX * 0.01; // Adjust sensitivity
-        });
-
-        prevMousePosition = { x: currentX, y: event.clientY || event.touches[0].clientY };
-      };
-
-      const onMouseUp = () => {
-        isDragging = false;
-      };
-
-      // Add both mouse and touch event listeners
-      document.addEventListener('mousedown', onMouseDown);
-      document.addEventListener('mousemove', onMouseMove);
-      document.addEventListener('mouseup', onMouseUp);
-
-      // Add touch event listeners
-      document.addEventListener('touchstart', onMouseDown);
-      document.addEventListener('touchmove', onMouseMove);
-      document.addEventListener('touchend', onMouseUp);
-
-
-      const updateBlocks = () => {
-        positions.forEach((pos, index) => {
-          const z = a * Math.pow(pos.x - 1, 2) + b * pos.x + c;
-          const block = blocks[index];
-          const currentPos = block.position;
-
-          block.position.x += (pos.x - currentPos.x) * 0.1;
-          block.position.z += (z - currentPos.z) * 0.1;
-
-          const slope = 2 * a * (pos.x - 1) + b;
-          const angle = Math.atan(slope);
-          block.rotation.y += (-angle - block.rotation.y) * 0.1;
-        });
-      };
-
-      const animate = () => {
-        requestAnimationFrame(animate);
-        updateBlocks();
-        this.renderer.render(this.scene, this.camera);
-      };
-
-      animate();
-
-
-      // Switch to FPS mode
-      this.isFPSMode = true;
-      this.controls.dispose();
-
-      this.model.position.set(1, 0, 3);
-      this.camera.position.set(1, 2, 3);
-      this.camera.lookAt(1, 2, 0); // Look towards the center
-
-      // Add buttons for the carousel
-      const nextButton = document.createElement('button');
-      nextButton.innerHTML = 'Next';
-      nextButton.style.position = 'absolute';
-      nextButton.style.top = '20px';
-      nextButton.style.right = '20px';
-      document.body.appendChild(nextButton);
-
-      const prevButton = document.createElement('button');
-      prevButton.innerHTML = 'Previous';
-      prevButton.style.position = 'absolute';
-      prevButton.style.top = '20px';
-      prevButton.style.right = '80px';
-      document.body.appendChild(prevButton);
-    },
-
-    exitFPSMode() {
-      if (this.nextButton && this.prevButton) {
-        document.body.removeChild(this.nextButton);
-        document.body.removeChild(this.prevButton);
-      }
-      document.addEventListener('keydown', (event) => {
-        this.keys[event.key.toUpperCase()] = true;
-      });
-
-      document.addEventListener('keyup', (event) => {
-        this.keys[event.key.toUpperCase()] = false;
-      });
-      this.isFPSMode = false;
-      // Restore OrbitControls
-      this.controls.dispose();
-      this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-
-      this.camera.position.set(10, 5, 10);
-      this.camera.lookAt(0, 4, 0);
-
-    },
-    // movePlayer() {
-    //   const speed = 0.1;
-    //   const moveVector = new THREE.Vector3();
-    //   if (this.movement.forward) moveVector.z -= speed;
-    //   if (this.movement.backward) moveVector.z += speed;
-    //   if (this.movement.left) moveVector.x -= speed;
-    //   if (this.movement.right) moveVector.x += speed;
-
-    //   if (moveVector.length() > 0) {
-    //     moveVector.normalize();
-    //     this.controls.object.position.add(moveVector);
-    //     this.model.position.add(moveVector);
-    //   }
-    // },
-    exitFullscreen() {
-      this.isFadingIn = false;
-      this.isFadingOut = false;
-      this.isButtonVisible = false;
-
-      const video = this.$refs.fullscreenVideo;
-      video.style.display = 'none';
-
-      this.$refs.sceneContainer.classList.remove('fade-out');
     },
     checkCollider(torus, bounder, object){
       bounder.setFromObject(torus);
