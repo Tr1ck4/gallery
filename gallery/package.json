@@ -13,6 +13,9 @@
     "format": "prettier --write src/"
   },
   "dependencies": {
+    "cannon": "^0.6.2",
+    "cannon-es": "^0.20.0",
+    "mapbox-gl": "^3.7.0",
     "pinia": "^2.1.7",
     "three": "^0.168.0",
     "vue": "^3.4.29",
