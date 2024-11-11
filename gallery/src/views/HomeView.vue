@@ -436,10 +436,10 @@ export default {
       this.isButtonVisible = false;
 
       const video = this.$refs.fullscreenVideo;
+      video.pause();
       video.style.display = 'none';
 
       this.$refs.sceneContainer.classList.remove('fade-out');
-      this.initThreeScene();
     },
     checkCollider(torus, bounder, object){
       bounder.setFromObject(torus);
